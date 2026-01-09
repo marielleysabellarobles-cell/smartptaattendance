@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart PTA Attendance</title>
+
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  background:linear-gradient(135deg,#fde2e4,#e0f4ff);
+  font-family:'Inter',sans-serif;
+}
+
+header{
+  width:100%;
+  background:#cdb4db;
+  padding:20px;
+  text-align:center;
+  font-family:'Poppins',sans-serif;
+}
+
+.container{
+  width:100%;
+  max-width:420px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  margin-top:20px;
+}
+
+.card{
+  width:100%;
+  background:white;
+  padding:22px;
+  border-radius:16px;
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  box-shadow:0 10px 25px rgba(0,0,0,.1);
+}
+
+.hidden{display:none}
+
+h2{text-align:center;margin:0;font-family:'Poppins',sans-serif}
+
+input,select,textarea,button{
+  width:100%;
+  padding:12px;
+  border-radius:10px;
+  border:1px solid #ccc;
+  font-size:1rem;
+}
+
+button{
+  background:linear-gradient(135deg,#ffafcc,#bde0fe);
+  border:none;
+  font-weight:600;
+  cursor:pointer;
+}
+
+.back-btn{
+  background:#f1f5ff;
+  border:1px solid #ccd;
+}
+
+video{width:100%;border-radius:10px}
+
+ul{padding-left:18px}
+</style>
+</head>
+
+<body>
+
+<header><h1>Smart PTA Attendance</h1></header>
+
+<div class="container">
+
+<!-- LOGIN -->
+<div class="card" id="loginCard">
+<h2>Login</h2>
+<select id="role">
+  <option value="teacher">Teacher</option>
+  <option value="parent">Parent</option>
+</select>
+<input id="username" placeholder="Username" required>
+<input id="password" type="password" placeholder="Password" required>
+<button onclick="loginUser()">Login</button>
+</div>
+
+<!-- TEACHER DASHBOARD -->
+<div class="card hidden" id="teacherDash">
+<h2>Teacher Dashboard</h2>
+<button onclick="showPage('createMeeting')">Create Meeting</button>
+<button onclick="showPage('generateQR')">Generate QR</button>
+<button onclick="showPage('scanQR'); startTeacherCamera()">Scan QR</button>
+<button onclick="showPage('viewAttendance'); renderAttendance()">View Attendance</button>
+<button onclick="logout()">Logout</button>
+</div>
+
+<!-- PARENT DASHBOARD -->
+<div class="card hidden" id="parentDash">
+<h2>Parent Dashboard</h2>
+<button onclick="showPage('parentAgendasPage')">View Agendas</button>
+<button onclick="showPage('scanQRParent'); startParentCamera()">Scan QR</button>
+<button onclick="logout()">Logout</button>
+</div>
+
+<!-- CREATE MEETING -->
+<div class="card hidden" id="createMeeting">
+<button class="back-btn" onclick="goBack()">⬅ Back</button>
+<h2>Create Meeting</h2>
+<input id="meetingTitle" placeholder="Meeting Title">
+<input id="meetingDate" type="date">
+<textarea id="meetingAgenda" placeholder="Agenda"></textarea>
+<button onclick="addMeeting()">Save</button>
+</div>
+
+<!-- GENERATE QR -->
+<div class="card hidden" id="generateQR">
+<button class="back-btn" onclick="goBack()">⬅ Back</button>
+<h2>Generate QR</h2>
+<input id="qrParentName" placeholder="Parent Name">
+<input id="qrStudentName" placeholder="Student Name">
+<select id="qrMeetingSelect"></select>
+<button onclick="generateQR()">Generate</button>
+<div id="qrcodeContainer"></div>
+</div>
+
+<!-- SCAN TEACHER -->
+<div class="card hidden" id="scanQR">
+<button class="back-btn" onclick="stopTeacherCamera(); goBack()">⬅ Back</button>
+<h2>Scan QR</h2>
+<video id="videoTeacher" autoplay playsinline></video>
+<canvas id="canvasTeacher" hidden></canvas>
+<input type="file" id="qrFileInput" accept="image/*">
+<p id="scanResult"></p>
+</div>
+
+<!-- SCAN PARENT -->
+<div class="card hidden" id="scanQRParent">
+<button class="back-btn" onclick="stopParentCamera(); goBack()">⬅ Back</button>
+<h2>Scan QR</h2>
+<video id="videoParent" autoplay playsinline></video>
+<canvas id="canvasParent" hidden></canvas>
+<input type="file" id="qrFileInputParent" accept="image/*">
+<p id="scanResultParent"></p>
+</div>
+
+<!-- VIEW ATTENDANCE -->
+<div class="card hidden" id="viewAttendance">
+<button class="back-btn" onclick="goBack()">⬅ Back</button>
+<h2>Attendance Records</h2>
+<ul id="attendanceList"></ul>
+</div>
+
+<!-- PARENT AGENDAS -->
+<div class="card hidden" id="parentAgendasPage">
+<button class="back-btn" onclick="goBack()">⬅ Back</button>
+<ul id="parentAgendasList"></ul>
+</div>
+
+</div>
+
+<script>
+const teachers=[{username:"teacher1",password:"1234"}];
+const parents=[{username:"Juan Dela Cruz",password:"parent"}];
+
+let meetings=JSON.parse(localStorage.getItem("meetings"))||[];
+let attendance=JSON.parse(localStorage.getItem("attendance"))||[];
+let currentRole="";
+let teacherStream,parentStream;
+
+/* LOGIN */
+function loginUser(){
+  const r=role.value,u=username.value,p=password.value;
+  const list=r==="teacher"?teachers:parents;
+  if(list.find(x=>x.username===u && x.password===p)){
+    currentRole=r;
+    loginCard.classList.add("hidden");
+    document.getElementById(r+"Dash").classList.remove("hidden");
+    loadMeetings();
+  }else alert("Invalid login");
+}
+
+/* NAV */
+function showPage(id){
+  document.querySelectorAll(".card").forEach(c=>c.classList.add("hidden"));
+  document.getElementById(id).classList.remove("hidden");
+}
+function goBack(){showPage(currentRole+"Dash")}
+
+/* CAMERA */
+function startTeacherCamera(){startCamera(videoTeacher,canvasTeacher,"teacher")}
+function startParentCamera(){startCamera(videoParent,canvasParent,"parent")}
+
+function startCamera(video,canvas,role){
+  navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}})
+  .then(s=>{
+    role==="teacher"?teacherStream=s:parentStream=s;
+    video.srcObject=s;
+    scanLoop(video,canvas);
+  });
+}
+
+function stopTeacherCamera(){stopStream(teacherStream)}
+function stopParentCamera(){stopStream(parentStream)}
+function stopStream(s){if(s)s.getTracks().forEach(t=>t.stop())}
+
+/* SCAN */
+function scanLoop(video,canvas){
+  const ctx=canvas.getContext("2d");
+  if(video.readyState===4){
+    canvas.width=video.videoWidth;
+    canvas.height=video.videoHeight;
+    ctx.drawImage(video,0,0);
+    const img=ctx.getImageData(0,0,canvas.width,canvas.height);
+    const code=jsQR(img.data,canvas.width,canvas.height);
+    if(code){
+      saveAttendance(code.data);
+      if(scanResult)scanResult.textContent="✅ Attendance Recorded";
+      if(scanResultParent)scanResultParent.textContent="✅ Attendance Recorded";
+      stopTeacherCamera(); stopParentCamera();
+      return;
+    }
+  }
+  requestAnimationFrame(()=>scanLoop(video,canvas));
+}
+
+/* FILE SCAN */
+qrFileInput.onchange=qrFileInputParent.onchange=e=>{
+  const img=new Image();
+  img.onload=()=>{
+    const c=document.createElement("canvas");
+    c.width=img.width;c.height=img.height;
+    const ctx=c.getContext("2d");
+    ctx.drawImage(img,0,0);
+    const d=ctx.getImageData(0,0,c.width,c.height);
+    const code=jsQR(d.data,c.width,c.height);
+    e.target.nextElementSibling.textContent=code?"✅ Attendance Recorded":"❌ Invalid QR";
+    if(code)saveAttendance(code.data);
+  };
+  img.src=URL.createObjectURL(e.target.files[0]);
+}
+
+/* ATTENDANCE */
+function saveAttendance(data){
+  attendance.push({data,time:new Date().toLocaleString()});
+  localStorage.setItem("attendance",JSON.stringify(attendance));
+}
+
+function renderAttendance(){
+  attendanceList.innerHTML="";
+  attendance.forEach((a,i)=>{
+    attendanceList.innerHTML+=`<li><b>${i+1}</b><br>${a.data}<br><small>${a.time}</small></li>`;
+  });
+  if(!attendance.length)attendanceList.innerHTML="<li>No records yet</li>";
+}
+
+/* MEETING */
+function addMeeting(){
+  meetings.push({title:meetingTitle.value,date:meetingDate.value,agenda:meetingAgenda.value});
+  localStorage.setItem("meetings",JSON.stringify(meetings));
+  goBack();
+}
+
+function loadMeetings(){
+  qrMeetingSelect.innerHTML="";
+  meetings.forEach((m,i)=>qrMeetingSelect.innerHTML+=`<option value="${i}">${m.title}</option>`);
+}
+
+function generateQR(){
+  qrcodeContainer.innerHTML="";
+  new QRCode(qrcodeContainer,`${qrParentName.value}|${qrStudentName.value}`);
+}
+
+function logout(){location.reload()}
+</script>
+
+</body>
+</html>
